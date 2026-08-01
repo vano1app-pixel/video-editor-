@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Chat Wrapped — your group chat, recapped</title>
+    <meta
+      name="description"
+      content="Upload a WhatsApp export and get a Spotify-Wrapped-style recap of your group chat. Runs in your browser."
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>"
+    />
+  </head>
+  <body>
+    <main class="landing">
+      <div class="logo"><span></span> Chat Wrapped</div>
+
+      <h1>Your group chat, wrapped.</h1>
+      <p class="sub">
+        Upload a WhatsApp export. Get the leaderboard, the awards and the roast. Weekly, monthly or
+        all-time.
+      </p>
+
+      <section class="drop" id="drop">
+        <h2 id="dropTitle">Drop your chat export here</h2>
+        <p>A <code>.txt</code> file from WhatsApp → Export chat → Without media</p>
+        <button class="btn ghost" id="pick">Choose file</button>
+        <input type="file" id="file" accept=".txt,.json" class="hidden" />
+      </section>
+
+      <div class="controls" id="windows"></div>
+      <div class="controls" id="tones"></div>
+
+      <div class="status" id="status"></div>
+      <div class="spinner hidden" id="spinner"></div>
+
+      <div class="controls">
+        <button class="btn" id="go" disabled>Generate my wrapped</button>
+      </div>
+
+      <div class="field">
+        <label for="apikey">Anthropic API key (optional)</label>
+        <input id="apikey" type="password" placeholder="sk-ant-…" autocomplete="off" />
+        <small
+          >Leave blank to use the hosted writer. Paste your own key to run it yourself — it is
+          stored only in this browser and sent only to Anthropic. Without a key and without the
+          hosted service you still get the full stats deck, just without the written jokes.</small
+        >
+      </div>
+
+      <div class="howto">
+        <h3>How to export a WhatsApp chat</h3>
+        <ol>
+          <li>Open the group chat</li>
+          <li>Tap the group name → scroll down → <strong>Export chat</strong></li>
+          <li>Choose <strong>Without media</strong></li>
+          <li>Save the <code>.txt</code> and drop it above</li>
+        </ol>
+      </div>
+
+      <p class="privacy">
+        Your chat is parsed in your browser. Message text never gets uploaded — only aggregate
+        counts and a small anonymised sample are sent to write the jokes. Nothing is stored.
+      </p>
+    </main>
+
+    <div class="player hidden" id="player">
+      <div class="stage" id="stage">
+        <div class="progress" id="progress"></div>
+        <div class="nav">
+          <button id="prev" aria-label="Previous"></button>
+          <button id="next" aria-label="Next"></button>
+        </div>
+        <div class="card" id="cardHost"></div>
+        <div class="watermark">Chat Wrapped</div>
+        <div class="tray">
+          <button id="close">✕ Close</button>
+          <button id="pause">❚❚ Pause</button>
+          <button id="save">⬇ Save card</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
