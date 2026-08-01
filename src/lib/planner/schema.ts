@@ -8,14 +8,26 @@
  * - no recursion
  * - optionality is expressed as type unions like ["string", "null"]
  *
- * The plan sub-schema mirrors EditPlan from "@/lib/types", minus
- * version/jobId/sourceId which sanitizePlan() fills server-side.
+ * KEEP THIS SCHEMA SMALL. The API compiles it into a decoding grammar and
+ * rejects the request outright once that grammar gets too large:
+ *
+ *   400 invalid_request_error — "The compiled grammar is too large, which
+ *   would cause performance issues. Simplify your tool schemas..."
+ *
+ * The first version asked the model for every field of EditPlan — caption
+ * colours, font size, dB levels, fade times, per-cut transition objects — and
+ * tripped that limit on the very first real call. So the rule here is: the
+ * model only chooses what is genuinely a creative decision. Everything else
+ * has a sensible default that sanitizePlan() fills in, and asking a model to
+ * pick an outline colour nobody mentioned is a worse edit anyway, not a better
+ * one. sanitizePlan treats every field as optional, so trimming a property
+ * here needs no change there.
  */
 
 const CLIP_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["sourceStart", "sourceEnd", "reason", "speedFactor"],
+  required: ["sourceStart", "sourceEnd", "reason"],
   properties: {
     sourceStart: {
       type: "number",
@@ -31,125 +43,39 @@ const CLIP_SCHEMA = {
       description:
         "One short sentence explaining why this moment made the cut. Shown in the UI.",
     },
-    speedFactor: {
-      type: ["number", "null"],
-      description:
-        "Playback speed for this clip. null or 1 = realtime; 1.5 = 50% faster. Useful range 0.5-4.",
-    },
   },
 };
 
+/**
+ * Captions: on/off and which look. Colours, font, size and position are
+ * styling defaults, not editorial choices — sanitizePlan supplies them.
+ */
 const CAPTIONS_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: [
-    "enabled",
-    "preset",
-    "fontFamily",
-    "fontSizePct",
-    "primaryColor",
-    "highlightColor",
-    "outlineColor",
-    "position",
-    "maxWordsPerLine",
-    "uppercase",
-  ],
+  required: ["enabled", "preset"],
   properties: {
-    enabled: { type: "boolean" },
+    enabled: {
+      type: "boolean",
+      description:
+        "Burn subtitles into the video. Only true when a transcript exists.",
+    },
     preset: {
       type: "string",
       enum: ["karaoke", "block", "minimal", "none"],
       description:
-        'Use "karaoke" for short/medium vertical output, "block" for long-form or 16:9, "none" when there is no transcript.',
+        'Caption look. "karaoke" highlights each word as it is spoken and suits short social clips.',
     },
-    fontFamily: { type: "string" },
-    fontSizePct: {
-      type: "number",
-      description: "Font size as a percentage of output height, e.g. 4.5.",
-    },
-    primaryColor: { type: "string", description: '"#RRGGBB", e.g. "#FFFFFF".' },
-    highlightColor: {
-      type: "string",
-      description: '"#RRGGBB" active-word colour in karaoke mode, e.g. "#FFD400".',
-    },
-    outlineColor: { type: "string", description: '"#RRGGBB", e.g. "#000000".' },
-    position: { type: "string", enum: ["top", "center", "bottom"] },
-    maxWordsPerLine: { type: "integer" },
-    uppercase: { type: "boolean" },
   },
 };
 
-const ZOOM_SCHEMA = {
+/** A single toggle. Levels, fades and thresholds are defaulted server-side. */
+const ENABLED_ONLY_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["start", "end", "fromScale", "toScale", "focusX", "focusY"],
+  required: ["enabled"],
   properties: {
-    start: {
-      type: "number",
-      description: "Seconds on the OUTPUT timeline (after cutting) where the punch-in starts.",
-    },
-    end: {
-      type: "number",
-      description: "Seconds on the OUTPUT timeline where the punch-in ends.",
-    },
-    fromScale: { type: "number", description: "Starting zoom scale, usually 1.0." },
-    toScale: { type: "number", description: "Ending zoom scale, usually 1.12 for a subtle punch-in." },
-    focusX: { type: "number", description: "Focus point X in normalised 0..1 output coords. Centre is 0.5." },
-    focusY: { type: "number", description: "Focus point Y in normalised 0..1 output coords. Centre is 0.5." },
-  },
-};
-
-const TRANSITION_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["atClipIndex", "type", "durationSec"],
-  properties: {
-    atClipIndex: {
-      type: "integer",
-      description: "The transition plays entering the clip at this index (must be >= 1).",
-    },
-    type: { type: "string", enum: ["cut", "fade", "dissolve", "whip"] },
-    durationSec: { type: "number", description: "Transition duration in seconds, e.g. 0.3." },
-  },
-};
-
-const MUSIC_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["enabled", "trackId", "url", "volumeDb", "duckDb", "fadeInSec", "fadeOutSec"],
-  properties: {
-    enabled: {
-      type: "boolean",
-      description: "true ONLY when the context block says a music track is attached.",
-    },
-    trackId: { type: ["string", "null"], description: "Id of a bundled track, or null." },
-    url: { type: ["string", "null"], description: "User-supplied track path/URL, or null." },
-    volumeDb: { type: "number", description: "Music bed level in dB relative to source, e.g. -18." },
-    duckDb: { type: "number", description: "Extra attenuation while speech is present, e.g. -10." },
-    fadeInSec: { type: "number" },
-    fadeOutSec: { type: "number" },
-  },
-};
-
-const REMOVE_SILENCE_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["enabled", "thresholdDb", "minSilenceSec", "paddingSec"],
-  properties: {
-    enabled: { type: "boolean", description: "Default true." },
-    thresholdDb: { type: "number", description: "Noise floor in dB, default -34." },
-    minSilenceSec: { type: "number", description: "Only cut silences longer than this, default 0.6." },
-    paddingSec: { type: "number", description: "Breathing room kept on each side of a cut, default 0.12." },
-  },
-};
-
-const REMOVE_FILLERS_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["enabled", "words"],
-  properties: {
-    enabled: { type: "boolean", description: "Default true." },
-    words: { type: "array", items: { type: "string" }, description: "Filler words to remove." },
+    enabled: { type: "boolean" },
   },
 };
 
@@ -160,11 +86,9 @@ const PLAN_SCHEMA = {
     "lengthPreset",
     "targetDurationSec",
     "aspectRatio",
-    "resolution",
     "clips",
     "captions",
-    "zooms",
-    "transitions",
+    "transitionStyle",
     "music",
     "removeSilence",
     "removeFillers",
@@ -178,35 +102,39 @@ const PLAN_SCHEMA = {
       type: "number",
       description: "Target output duration in seconds, inside the preset window.",
     },
-    aspectRatio: { type: "string", enum: ["16:9", "9:16", "1:1", "4:5", "source"] },
-    resolution: {
-      type: "object",
-      additionalProperties: false,
-      required: ["width", "height"],
-      properties: {
-        width: { type: "integer", description: "Output width in pixels (even)." },
-        height: { type: "integer", description: "Output height in pixels (even)." },
-      },
+    aspectRatio: {
+      type: "string",
+      enum: ["16:9", "9:16", "1:1", "4:5", "source"],
     },
     clips: {
       type: "array",
       items: CLIP_SCHEMA,
-      description: "Kept spans of the source timeline, rendered in array order. Hook first.",
+      description:
+        "Kept spans of the source timeline, rendered in array order. Strongest moment first.",
     },
     captions: CAPTIONS_SCHEMA,
-    zooms: { type: "array", items: ZOOM_SCHEMA },
-    transitions: {
-      type: "array",
-      items: TRANSITION_SCHEMA,
-      description: "Usually empty (hard cuts). At most one fade when tone calls for it.",
+    /**
+     * One style for every join, rather than an array of per-cut objects. A
+     * mixed bag of transitions across a single short clip looks amateurish,
+     * and collapsing this to one enum is a large chunk of the grammar saved.
+     */
+    transitionStyle: {
+      type: "string",
+      enum: ["cut", "fade", "dissolve", "whip"],
+      description:
+        'How to join clips. "cut" (hard cuts) is right for most short social edits.',
     },
-    music: MUSIC_SCHEMA,
-    removeSilence: REMOVE_SILENCE_SCHEMA,
-    removeFillers: REMOVE_FILLERS_SCHEMA,
-    title: { type: ["string", "null"], description: "Short title for the edit, or null." },
+    music: ENABLED_ONLY_SCHEMA,
+    removeSilence: ENABLED_ONLY_SCHEMA,
+    removeFillers: ENABLED_ONLY_SCHEMA,
+    title: {
+      type: ["string", "null"],
+      description: "Short title for the edit, or null.",
+    },
     summary: {
       type: ["string", "null"],
-      description: "One-paragraph description of the edit, shown to the user. null if not ready.",
+      description:
+        "One-paragraph description of the edit, shown to the user. null if not ready.",
     },
   },
 };
@@ -219,7 +147,8 @@ export const PLANNER_TURN_SCHEMA: Record<string, unknown> = {
   properties: {
     reply: {
       type: "string",
-      description: "Short, friendly message shown to the user. When ready, 2-3 sentences summarising the edit.",
+      description:
+        "Short, friendly message shown to the user. When ready, 2-3 sentences summarising the edit.",
     },
     ready: {
       type: "boolean",
@@ -227,11 +156,12 @@ export const PLANNER_TURN_SCHEMA: Record<string, unknown> = {
     },
     questions: {
       type: "array",
-      description: "Clarifying questions. MUST be [] when ready is true. At most 3.",
+      description:
+        "Clarifying questions. MUST be [] when ready is true. At most 3.",
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["id", "question", "kind", "options", "rationale"],
+        required: ["id", "question", "kind", "options"],
         properties: {
           id: { type: "string", description: 'Stable id like "q1".' },
           question: { type: "string" },
@@ -239,11 +169,8 @@ export const PLANNER_TURN_SCHEMA: Record<string, unknown> = {
           options: {
             type: "array",
             items: { type: "string" },
-            description: '2-6 clickable suggested answers. [] only for kind "text".',
-          },
-          rationale: {
-            type: ["string", "null"],
-            description: "Why the planner needs this. Shown as helper text.",
+            description:
+              '2-6 clickable suggested answers. [] only for kind "text".',
           },
         },
       },

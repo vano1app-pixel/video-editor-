@@ -210,6 +210,7 @@ const EMPTY_RAW_PLAN = {
   captions: null,
   zooms: [] as unknown[],
   transitions: [] as unknown[],
+  transitionStyle: null,
   music: null,
   removeSilence: null,
   removeFillers: null,
@@ -226,6 +227,7 @@ const rawPlanSchema = z
     captions: rawCaptionsSchema,
     zooms: rawList,
     transitions: rawList,
+    transitionStyle: rawString,
     music: rawMusicSchema,
     removeSilence: rawRemoveSilenceSchema,
     removeFillers: rawRemoveFillersSchema,
@@ -526,6 +528,28 @@ function sanitizeTransitions(entries: unknown[], clipCount: number): TransitionS
   return transitions;
 }
 
+/**
+ * Expand the planner's single `transitionStyle` into one spec per join.
+ *
+ * The model picks one style for the whole edit rather than an object per cut:
+ * a short clip that fades, then dissolves, then whips looks amateurish, and
+ * the per-cut array was a large share of the structured-output grammar (which
+ * the API rejects once it grows too big). "cut" means hard cuts — no specs.
+ */
+function transitionsFromStyle(
+  style: string,
+  clipCount: number,
+): TransitionSpec[] {
+  const type = oneOf(style, TRANSITION_TYPES, "cut");
+  if (type === "cut" || clipCount < 2) return [];
+
+  const specs: TransitionSpec[] = [];
+  for (let index = 1; index < clipCount; index += 1) {
+    specs.push({ atClipIndex: index, type, durationSec: 0.3 });
+  }
+  return specs;
+}
+
 function sanitizeMusic(raw: z.infer<typeof rawMusicSchema>, brief: Brief): MusicSpec {
   const music: MusicSpec = { ...DEFAULT_MUSIC };
 
@@ -623,7 +647,12 @@ export function sanitizePlan(
     clips,
     captions: sanitizeCaptions(parsed.captions, analysis.transcript !== null),
     zooms: sanitizeZooms(parsed.zooms),
-    transitions: sanitizeTransitions(parsed.transitions, clips.length),
+    // `transitionStyle` is what the current schema asks for; the per-cut array
+    // is still honoured so a hand-written or older plan keeps working.
+    transitions:
+      parsed.transitionStyle !== null
+        ? transitionsFromStyle(parsed.transitionStyle, clips.length)
+        : sanitizeTransitions(parsed.transitions, clips.length),
     music: sanitizeMusic(parsed.music, brief),
     removeSilence: sanitizeRemoveSilence(parsed.removeSilence),
     removeFillers: sanitizeRemoveFillers(parsed.removeFillers),

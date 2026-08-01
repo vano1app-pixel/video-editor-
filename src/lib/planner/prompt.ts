@@ -7,7 +7,7 @@
  * interpolate timestamps, random ids, or per-request state here.
  */
 
-import { MAX_TRANSCRIPT_CHARS, RENDER_DEFAULTS } from "@/lib/config";
+import { MAX_TRANSCRIPT_CHARS } from "@/lib/config";
 import { DEFAULT_FILLER_WORDS, LENGTH_PRESETS } from "@/lib/types";
 import type { Analysis, Brief, LengthPreset } from "@/lib/types";
 
@@ -56,13 +56,11 @@ export function buildSystemInstructions(): string {
     "- sourceStart/sourceEnd must lie within the media duration. Snap cuts to word boundaries: start about 0.15s before the first word begins, end about 0.2s after the last word ends. Do not start a clip mid-sentence unless it is a deliberate hook.",
     "- Prefer cutting inside silences or at scene boundaries - it hides the cut.",
     "- Keep clips in chronological source order, except when pulling a hook forward is clearly better.",
-    "- removeSilence: enabled by default with thresholdDb -34, minSilenceSec 0.6, paddingSec 0.12.",
-    `- removeFillers: enabled by default with the standard filler words: [${fillerList}]. Trim the list if the speaker's style depends on some of them.`,
-    '- Captions: preset "karaoke" for short/medium vertical output (9:16, 4:5, 1:1); "block" for long-form or 16:9. Sensible colours: primary "#FFFFFF" (white), highlight "#FFD400", outline "#000000", position "bottom". If the context block says NO TRANSCRIPT AVAILABLE, use preset "none" with enabled false.',
-    "- Zooms: at most ONE subtle punch-in (fromScale 1.0 -> toScale 1.12) per ~15 seconds of output, placed on emphasis moments. Zoom start/end are on the OUTPUT timeline (after cutting); focusX/focusY are 0..1 with 0.5/0.5 = centre.",
-    '- Transitions: hard cuts by default - an empty transitions array is usually correct. Add at most a single "fade" and only when the tone clearly calls for it. atClipIndex is the index of the clip being entered (>= 1).',
-    "- Music: set music.enabled true ONLY if the context block says a music track is attached; otherwise enabled must be false. When enabled, use volumeDb around -18 and duckDb around -10 with short fades.",
-    `- Resolution: match the aspect ratio with the long edge at ${RENDER_DEFAULTS.maxDimension}px, both dimensions even (the server normalises this anyway).`,
+    `- removeSilence / removeFillers: both enabled by default (the standard filler list is [${fillerList}]). Turn one off only when the speaker's delivery clearly depends on the pauses or the words.`,
+    '- Captions: preset "karaoke" for short/medium vertical output (9:16, 4:5, 1:1); "block" for long-form or 16:9. If the context block says NO TRANSCRIPT AVAILABLE, set enabled false and preset "none" - there is nothing to caption.',
+    '- transitionStyle: "cut" (hard cuts) is right for almost every short social edit. Choose "fade" or "dissolve" only when the tone clearly calls for it; the style applies to every join.',
+    "- Music: set music.enabled true ONLY if the context block says a music track is attached; otherwise it must be false.",
+    "- Everything not in the schema - caption colours and size, audio levels, fade lengths, output resolution - is styled server-side from sensible defaults. Do not mention those in the reply as if you chose them.",
     "",
     "REPLY STYLE",
     "- Short, friendly, concrete. No filler, no hedging.",
