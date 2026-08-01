@@ -14,6 +14,19 @@ ANTHROPIC_API_KEY=sk-ant-... node server.mjs
 # http://localhost:5173
 ```
 
+To exercise the paywall too:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-... \
+STRIPE_SECRET_KEY=sk_test_... \
+STRIPE_WEBHOOK_SECRET=whsec_... \
+PUBLIC_ORIGIN=http://localhost:5173 \
+node server.mjs
+
+# in another shell, so Stripe can reach the webhook:
+stripe listen --forward-to localhost:5173/api/stripe-webhook
+```
+
 No dependencies, no build step. Everything is plain ES modules.
 
 Without a server key, paste your own key into the field on the page — it stays in `localStorage`
@@ -29,8 +42,13 @@ without the written jokes.
 | `deck.js` | Stats → ordered story cards with palettes. Works with or without AI copy. |
 | `ai.js` | The writer. Forced tool-use so the copy always comes back structured. |
 | `app.js` | Upload, window selection, the story player, PNG export. |
-| `api/wrapped.js` | Serverless handler for the hosted version. Where payment + rate limiting go. |
-| `server.mjs` | Dev server: static files + the API handler. |
+| `pricing.js` | Cost model and bundle prices, with the margin maths. `node pricing.js` prints the table. |
+| `credits.js` | Credit ledger + IP rate limiter. Keys are stored hashed. |
+| `api/wrapped.js` | The paid writer call: rate limit → spend a credit → call the model → refund on failure. |
+| `api/checkout.js` | Creates a Stripe Checkout session. |
+| `api/stripe-webhook.js` | Verifies the signature and grants credits. The only place credits are minted. |
+| `api/claim.js` | Hands the minted key to the buyer after redirect; also reports a balance. |
+| `server.mjs` | Dev server: static files + all four API handlers. |
 
 ## Why windows instead of "Wrapped"
 
@@ -55,17 +73,60 @@ It also fixes the "our chat doesn't go back far" problem: 7 days of history is e
 - Ambiguous dates (`8/1/2026`) are resolved by checking which reading keeps the export
   chronological; locale only breaks a true tie.
 
-## Before charging money
+## Why it costs what it costs
 
-1. **Payment.** Add a checkout to `api/wrapped.js` — verify a paid session before calling the model.
-   Free tier = stats deck, paid = awards + roast. The paywall lands right after the preview, at peak
-   excitement.
-2. **Rate limit** `api/wrapped.js` by IP. Right now anyone can drain your key.
+Measured on a real 2,400-message export: **~3,200 input + ~1,000 output tokens** per report. On
+Claude Sonnet 5 at list price ($3 / $15 per million) that is **€0.025** of model cost. On Haiku 4.5
+it is €0.008.
+
+So the model is not what sets the price — **Stripe's fixed 25c fee is**. A 12c charge loses money
+before the model is even called. That one constraint produces the bundles:
+
+| Pack | Price | Per report | Stripe takes | Model cost | **Margin per report** |
+| --- | --- | --- | --- | --- | --- |
+| 1 report | €0.50 | €0.50 | €0.26 | €0.025 | €0.218 |
+| **10 reports** | **€1.50** | **€0.15** | €0.27 | €0.246 | **€0.098** |
+| 50 reports | €5.00 | €0.10 | €0.33 | €1.230 | €0.069 |
+
+The 10-pack is the answer to "as cheap as possible, cost plus 10c": €1.50 nets **9.8c per report**
+after both the model and the payment processor. The single is priced high on purpose — the fixed fee
+makes cheap one-offs impossible, and it subsidises the pack.
+
+`node pricing.js` re-prints this table after any change to `pricing.js`.
+
+## How the paywall works
+
+- **Free:** the full stats deck, generated in the browser, always. Plus one AI-written report per IP
+  per day.
+- **Paid:** credits buy the written awards and the roast.
+- **No accounts.** A purchase mints an opaque `cw_…` key that lives in the buyer's browser. Keys are
+  stored hashed, so a leaked store file hands out nothing usable.
+- The paywall opens **after** the deck is on screen — the preview is the pitch.
+- Credits are spent before the model call and **refunded** if it fails.
+
+## Before you take real money
+
+1. **Swap the credit store.** `credits.js` writes one JSON file. Concurrent writes will drop credits
+   under load, and serverless functions don't share a disk. Move it to Postgres or Redis —
+   `grant` / `spend` / `refund` / `balance` is the whole surface to reimplement.
+2. **Rate limiting is process-local.** Fine on one box, useless across a fleet.
 3. **Privacy page.** State plainly: parsed locally, sample sent for writing, nothing stored, no
    training. Then actually do that. One Reddit comment about privacy kills this whole category.
-4. **Abuse.** The system prompt already blocks cruelty, but log refusals and spot-check output.
+4. **Abuse.** The system prompt blocks cruelty, but log refusals and spot-check output.
 
-## Cost per report
+## On getting chats in more easily
 
-One report ≈ 8k input + 1.5k output tokens on Sonnet. At consumer prices that's fractions of a cent
-— the economics work at €5, and they work at €1.
+There is no easier WhatsApp path than the 4-tap export, and the "connect your number" ideas are
+worse than they sound:
+
+- **WhatsApp Cloud API** only sees messages sent to *your* business number after you connect it. No
+  history, no group reading. Wrong tool.
+- **Unofficial libraries** (whatsapp-web.js, Baileys) link as a companion device and *can* read group
+  history — but they violate WhatsApp's terms, get numbers banned, and would put other people's
+  messages on your server, which destroys the privacy story this product is built on.
+- **Snapchat** has no API for reading chats, and its messages delete by design. Dead end.
+
+The genuinely easier route is a different platform: **Discord and Telegram have real, legal bot
+APIs**. A Discord bot can backfill full channel history; a Telegram bot sees everything from when it
+joins. That turns the upload into an install and makes weekly recaps automatic — the parser already
+accepts Discord JSON exports (`parseDiscordJson`), so the stats layer needs no changes.

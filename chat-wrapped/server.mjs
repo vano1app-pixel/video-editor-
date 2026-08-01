@@ -8,7 +8,10 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import handler from './api/wrapped.js';
+import wrappedHandler from './api/wrapped.js';
+import checkoutHandler from './api/checkout.js';
+import claimHandler from './api/claim.js';
+import webhookHandler from './api/stripe-webhook.js';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PORT = Number(process.env.PORT) || 5173;
@@ -50,14 +53,29 @@ function shim(res) {
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
-  if (url.pathname === '/api/wrapped') {
+  const POST_ROUTES = {
+    '/api/wrapped': wrappedHandler,
+    '/api/checkout': checkoutHandler,
+    '/api/stripe-webhook': webhookHandler,
+  };
+
+  if (url.pathname === '/api/claim') {
+    await claimHandler(req, shim(res));
+    return;
+  }
+
+  const route = POST_ROUTES[url.pathname];
+  if (route) {
     try {
+      // The webhook verifies a signature over these exact bytes — pass the raw
+      // string straight through and never re-serialise it.
       req.body = await readBody(req);
+      req.rawBody = req.body;
     } catch {
       shim(res).status(413).json({ error: 'Payload too large.' });
       return;
     }
-    await handler(req, shim(res));
+    await route(req, shim(res));
     return;
   }
 

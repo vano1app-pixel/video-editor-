@@ -75,23 +75,43 @@ ${JSON.stringify(payload, null, 1)}
 Write the deck copy. Invent 3-5 awards that only make sense for THIS group — the more specific, the better.`;
 }
 
-/** Call the hosted proxy first; fall back to a user-supplied key. */
-export async function generateCopy(payload, { apiKey, tone = 'balanced', model = DEFAULT_MODEL } = {}) {
-  if (!apiKey) return callProxy(payload, tone, model);
+/** Thrown when the hosted writer wants money. The UI opens the paywall on this. */
+export class PaymentRequiredError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'PaymentRequiredError';
+    this.needsPayment = true;
+  }
+}
+
+/**
+ * Call the hosted proxy first; fall back to a user-supplied Anthropic key.
+ * `creditKey` is the Chat Wrapped credit key, not an Anthropic key — the two
+ * are unrelated and only one is ever sent.
+ */
+export async function generateCopy(
+  payload,
+  { apiKey, creditKey, tone = 'balanced', model = DEFAULT_MODEL } = {}
+) {
+  if (!apiKey) return callProxy(payload, tone, model, creditKey);
   return callAnthropic(payload, tone, model, apiKey);
 }
 
-async function callProxy(payload, tone, model) {
+async function callProxy(payload, tone, model, creditKey) {
   const res = await fetch('/api/wrapped', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ payload, tone, model }),
+    body: JSON.stringify({ payload, tone, model, key: creditKey || undefined }),
   });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(`Writer service failed (${res.status}). ${detail.slice(0, 200)}`);
+
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 402 || data.needsPayment) {
+    throw new PaymentRequiredError(data.error || 'Payment required.');
   }
-  return res.json();
+  if (!res.ok) {
+    throw new Error(`Writer service failed (${res.status}). ${data.error || ''}`.trim());
+  }
+  return data;
 }
 
 async function callAnthropic(payload, tone, model, apiKey) {

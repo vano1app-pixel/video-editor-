@@ -39,7 +39,9 @@
 
       <div class="controls">
         <button class="btn" id="go" disabled>Generate my wrapped</button>
+        <button class="btn ghost" id="buy">Buy credits</button>
       </div>
+      <div class="credits hidden" id="credits"></div>
 
       <div class="field">
         <label for="apikey">Anthropic API key (optional)</label>
@@ -81,6 +83,23 @@
           <button id="pause">❚❚ Pause</button>
           <button id="save">⬇ Save card</button>
         </div>
+      </div>
+    </div>
+
+    <div class="paywall hidden" id="paywall">
+      <div class="sheet">
+        <button class="x" id="closePay" aria-label="Close">✕</button>
+        <h2>Unlock the awards</h2>
+        <p>
+          The stats deck is always free. Credits pay for the written awards and the roast — the
+          part your group actually screenshots.
+        </p>
+        <div class="packs" id="packs"></div>
+        <div class="payerr" id="payErr"></div>
+        <small
+          >Credits live in this browser. No account, no email. Keep the link if you clear your
+          data.</small
+        >
       </div>
     </div>
 

@@ -1,7 +1,8 @@
 import { parseChat, windowMessages } from './parser.js';
 import { computeStats, buildAiPayload } from './stats.js';
 import { buildDeck } from './deck.js';
-import { generateCopy } from './ai.js';
+import { generateCopy, PaymentRequiredError } from './ai.js';
+import { PACKS } from './pricing.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -13,6 +14,8 @@ const state = {
   cursor: 0,
   timer: null,
   paused: false,
+  creditKey: null,
+  credits: 0,
 };
 
 const WINDOWS = [
@@ -123,13 +126,24 @@ async function run() {
   $('#spinner').classList.remove('hidden');
 
   let ai = null;
-  const key = $('#apikey').value.trim();
+  let paywalled = false;
+  const apiKey = $('#apikey').value.trim();
   try {
     setStatus('Writing your awards…');
-    ai = await generateCopy(buildAiPayload(stats, slice), { apiKey: key || undefined, tone: state.tone });
+    ai = await generateCopy(buildAiPayload(stats, slice), {
+      apiKey: apiKey || undefined,
+      creditKey: state.creditKey,
+      tone: state.tone,
+    });
+    if (typeof ai.credits === 'number') setCredits(ai.credits);
   } catch (err) {
     console.error(err);
-    setStatus(`${err.message} — showing the stats-only version.`, true);
+    if (err instanceof PaymentRequiredError) {
+      paywalled = true;
+      setStatus(err.message);
+    } else {
+      setStatus(`${err.message} — showing the stats-only version.`, true);
+    }
   }
 
   $('#spinner').classList.add('hidden');
@@ -137,6 +151,80 @@ async function run() {
 
   state.deck = buildDeck(stats, ai, label);
   openPlayer();
+
+  // Show the deck first, then ask for money — the preview is the pitch.
+  if (paywalled) setTimeout(openPaywall, 1200);
+}
+
+/* ---------------- Paywall ---------------- */
+
+function setCredits(n) {
+  state.credits = n;
+  const el = $('#credits');
+  if (n > 0) {
+    el.textContent = `${n} report${n === 1 ? '' : 's'} left`;
+    el.classList.remove('hidden');
+  } else {
+    el.classList.add('hidden');
+  }
+}
+
+function openPaywall() {
+  const wrap = $('#packs');
+  wrap.innerHTML = '';
+  for (const p of Object.values(PACKS)) {
+    const per = (p.priceCents / p.reports / 100).toFixed(2);
+    const b = document.createElement('button');
+    b.className = 'pack' + (p.id === 'ten' ? ' best' : '');
+    b.innerHTML = `<span class="n">${p.label}</span>
+      <span class="p">€${(p.priceCents / 100).toFixed(2)}</span>
+      <span class="u">€${per} each</span>`;
+    b.onclick = () => buy(p.id, b);
+    wrap.appendChild(b);
+  }
+  $('#paywall').classList.remove('hidden');
+}
+
+async function buy(pack, button) {
+  button.disabled = true;
+  $('#payErr').textContent = '';
+  try {
+    const res = await fetch('/api/checkout', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pack, key: state.creditKey || undefined }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.url) throw new Error(data.error || 'Could not start checkout.');
+    window.location.href = data.url;
+  } catch (err) {
+    console.error(err);
+    $('#payErr').textContent = err.message;
+    button.disabled = false;
+  }
+}
+
+/** Stripe sends the buyer back with ?checkout=cs_… — collect the minted key. */
+async function claimCheckout(checkoutId) {
+  setStatus('Confirming your purchase…');
+  // The webhook usually lands first, but not always — retry briefly.
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      const res = await fetch(`/api/claim?checkout=${encodeURIComponent(checkoutId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        state.creditKey = data.key;
+        localStorage.setItem('cw_credit_key', data.key);
+        setCredits(data.credits);
+        setStatus(`Purchase confirmed — ${data.credits} reports ready.`);
+        return;
+      }
+    } catch {
+      /* keep retrying */
+    }
+    await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+  }
+  setStatus('Payment received, but the credits have not arrived yet. Refresh in a moment.', true);
 }
 
 /* ---------------- Story player ---------------- */
@@ -438,6 +526,24 @@ function init() {
     if (v) localStorage.setItem('cw_key', v);
     else localStorage.removeItem('cw_key');
   });
+
+  $('#closePay').onclick = () => $('#paywall').classList.add('hidden');
+  $('#buy').onclick = openPaywall;
+
+  state.creditKey = localStorage.getItem('cw_credit_key');
+  if (state.creditKey) {
+    fetch(`/api/claim?key=${encodeURIComponent(state.creditKey)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setCredits(d.credits))
+      .catch(() => {});
+  }
+
+  const params = new URLSearchParams(location.search);
+  const checkout = params.get('checkout');
+  if (checkout) {
+    history.replaceState(null, '', location.pathname);
+    claimCheckout(checkout);
+  }
 }
 
 init();

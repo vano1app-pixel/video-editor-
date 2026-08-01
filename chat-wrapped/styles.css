@@ -614,6 +614,147 @@ button {
   z-index: 2;
 }
 
+/* ---------- Paywall ---------- */
+
+.credits {
+  margin-top: 14px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #9ef5c4;
+}
+
+.paywall {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.66);
+  backdrop-filter: blur(6px);
+}
+
+@media (min-width: 620px) {
+  .paywall {
+    align-items: center;
+  }
+}
+
+.sheet {
+  position: relative;
+  width: min(100%, 460px);
+  background: #14141c;
+  border: 1px solid #26262f;
+  border-radius: 24px 24px 0 0;
+  padding: 30px 24px calc(28px + env(safe-area-inset-bottom));
+  animation: slideup 0.28s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+
+@media (min-width: 620px) {
+  .sheet {
+    border-radius: 24px;
+  }
+}
+
+@keyframes slideup {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+}
+
+.sheet h2 {
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  margin-bottom: 10px;
+}
+
+.sheet p {
+  color: #9b9baa;
+  font-size: 14px;
+  line-height: 1.55;
+  margin-bottom: 20px;
+}
+
+.sheet small {
+  display: block;
+  margin-top: 18px;
+  color: #6f6f80;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.sheet .x {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  color: #6f6f80;
+  font-size: 16px;
+}
+
+.packs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pack {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: 'n p' 'u p';
+  align-items: center;
+  gap: 2px 12px;
+  text-align: left;
+  padding: 15px 18px;
+  border-radius: 14px;
+  background: #1c1c26;
+  border: 1px solid #2b2b36;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.pack:hover:not(:disabled) {
+  border-color: #1db954;
+  background: #16211a;
+}
+
+.pack:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.pack.best {
+  border-color: #1db954;
+}
+
+.pack .n {
+  grid-area: n;
+  font-weight: 800;
+  font-size: 16px;
+}
+
+.pack .u {
+  grid-area: u;
+  font-size: 12px;
+  color: #8a8a99;
+  font-weight: 600;
+}
+
+.pack .p {
+  grid-area: p;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: #9ef5c4;
+}
+
+.payerr {
+  margin-top: 12px;
+  color: #ff8b8b;
+  font-size: 13px;
+  min-height: 18px;
+}
+
 .spinner {
   width: 34px;
   height: 34px;

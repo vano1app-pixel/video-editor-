@@ -1,12 +1,21 @@
-// Serverless proxy for the hosted version (Vercel / Netlify function style).
-// Keeps the API key server-side and is where you enforce payment + rate limits.
+// The writer endpoint. This is the only paid call in the app — the stats deck
+// is generated client-side and stays free forever.
 //
-// Local dev: `node server.mjs` mounts this same handler at POST /api/wrapped.
+// Order matters: rate limit, then take payment, then call the model, and refund
+// the credit if the model call fails.
 
 import { SYSTEM, TOOL, userPrompt, DEFAULT_MODEL } from '../ai.js';
+import { spend, refund, balance, rateLimit } from '../credits.js';
+import { FREE_REPORTS } from '../pricing.js';
 
-const ALLOWED_MODELS = new Set(['claude-sonnet-5', 'claude-opus-5', 'claude-haiku-4-5-20251001']);
+const ALLOWED_MODELS = new Set(['claude-sonnet-5', 'claude-opus-5', 'claude-haiku-4-5']);
 const MAX_BODY_BYTES = 300 * 1024;
+
+function clientIp(req) {
+  const fwd = req.headers['x-forwarded-for'];
+  if (typeof fwd === 'string' && fwd) return fwd.split(',')[0].trim();
+  return req.socket?.remoteAddress || 'unknown';
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -34,15 +43,46 @@ export default async function handler(req, res) {
     }
   }
 
-  const { payload, tone = 'balanced', model = DEFAULT_MODEL } = body || {};
+  const { payload, tone = 'balanced', model = DEFAULT_MODEL, key = null } = body || {};
   if (!payload || typeof payload !== 'object' || !payload.totals) {
     res.status(400).json({ error: 'Missing stats payload.' });
     return;
   }
 
-  const chosenModel = ALLOWED_MODELS.has(model) ? model : DEFAULT_MODEL;
+  const ip = clientIp(req);
 
-  // TODO before launch: verify a paid session / credit here, and rate-limit by IP.
+  // Paid callers get a generous ceiling; it exists to bound a leaked key, not
+  // to ration buyers. Anonymous callers get the free allowance and nothing more.
+  const limit = key
+    ? rateLimit(`paid:${ip}`, { max: 120, windowMs: 3600_000 })
+    : rateLimit(`free:${ip}`, { max: FREE_REPORTS, windowMs: 24 * 3600_000 });
+
+  if (!limit.ok) {
+    if (key) {
+      res.status(429).json({ error: 'Too many requests. Try again shortly.' });
+    } else {
+      res.status(402).json({
+        error: 'Free report used. Buy credits to generate more.',
+        needsPayment: true,
+      });
+    }
+    return;
+  }
+
+  let spentKey = null;
+  if (key) {
+    const remaining = await spend(key);
+    if (remaining === null) {
+      res.status(402).json({
+        error: 'That key has no credits left.',
+        needsPayment: true,
+      });
+      return;
+    }
+    spentKey = key;
+  }
+
+  const chosenModel = ALLOWED_MODELS.has(model) ? model : DEFAULT_MODEL;
 
   try {
     const upstream = await fetch('https://api.anthropic.com/v1/messages', {
@@ -65,6 +105,7 @@ export default async function handler(req, res) {
     if (!upstream.ok) {
       const detail = await upstream.text().catch(() => '');
       console.error('Anthropic error', upstream.status, detail.slice(0, 500));
+      await refund(spentKey);
       res.status(502).json({ error: `Writer upstream failed (${upstream.status}).` });
       return;
     }
@@ -72,12 +113,18 @@ export default async function handler(req, res) {
     const data = await upstream.json();
     const block = (data.content || []).find((c) => c.type === 'tool_use');
     if (!block) {
+      await refund(spentKey);
       res.status(502).json({ error: 'Writer returned no copy.' });
       return;
     }
-    res.status(200).json(block.input);
+
+    res.status(200).json({
+      ...block.input,
+      credits: spentKey ? await balance(spentKey) : null,
+    });
   } catch (err) {
     console.error('wrapped handler failed', err);
+    await refund(spentKey);
     res.status(500).json({ error: 'Unexpected server error.' });
   }
 }
