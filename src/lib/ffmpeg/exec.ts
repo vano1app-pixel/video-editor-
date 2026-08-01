@@ -1,8 +1,18 @@
 import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
+import fs from "node:fs";
 import { FFMPEG_TIMEOUT_MS } from "@/lib/config";
 
-const require = createRequire(import.meta.url);
+// These two must stay STATIC imports. They are declared in
+// `serverExternalPackages` (next.config.ts), so webpack leaves them as real
+// runtime requires that Node resolves against node_modules — which is the only
+// way to get the true on-disk binary path out of a bundled server.
+//
+// Do not "improve" this into `createRequire(import.meta.url)(pkgName)`: webpack
+// rewrites a dynamic require into a context module that resolves to nothing at
+// runtime, so resolution silently fell through to a bare "ffmpeg"/"ffprobe"
+// PATH lookup and every spawn died with ENOENT.
+import ffmpegStaticPath from "ffmpeg-static";
+import ffprobeStatic from "ffprobe-static";
 
 /**
  * Resolve the ffmpeg/ffprobe binaries.
@@ -10,30 +20,33 @@ const require = createRequire(import.meta.url);
  * A system build wins when FFMPEG_PATH / FFPROBE_PATH is set — production
  * images usually ship a build with hardware encoders and newer filters. The
  * npm static binaries are the fallback so `npm install && npm run dev` works
- * on a bare machine with no ffmpeg.
+ * on a bare machine with no ffmpeg. When neither is usable we hand back the
+ * bare command name and let PATH decide.
  */
 function resolveBinary(
   envVar: string,
-  staticPkg: string,
+  staticPath: string | null | undefined,
   fallbackName: string,
 ): string {
   const fromEnv = process.env[envVar];
   if (fromEnv) return fromEnv;
 
-  try {
-    const mod = require(staticPkg);
-    const p = typeof mod === "string" ? mod : (mod?.path ?? mod?.default);
-    if (typeof p === "string" && p.length > 0) return p;
-  } catch {
-    // Package not installed — fall through to PATH lookup.
+  // The package can resolve while the binary itself was never downloaded
+  // (postinstall skipped, unsupported platform); only trust a path on disk.
+  if (typeof staticPath === "string" && staticPath.length > 0) {
+    try {
+      if (fs.existsSync(staticPath)) return staticPath;
+    } catch {
+      // Unreadable path — fall through to the PATH lookup.
+    }
   }
   return fallbackName;
 }
 
-export const FFMPEG_BIN = resolveBinary("FFMPEG_PATH", "ffmpeg-static", "ffmpeg");
+export const FFMPEG_BIN = resolveBinary("FFMPEG_PATH", ffmpegStaticPath, "ffmpeg");
 export const FFPROBE_BIN = resolveBinary(
   "FFPROBE_PATH",
-  "ffprobe-static",
+  ffprobeStatic.path,
   "ffprobe",
 );
 
