@@ -114,6 +114,51 @@ makes cheap one-offs impossible, and it subsidises the pack.
    training. Then actually do that. One Reddit comment about privacy kills this whole category.
 4. **Abuse.** The system prompt blocks cruelty, but log refusals and spot-check output.
 
+## Telegram bot
+
+```bash
+TELEGRAM_BOT_TOKEN=... ANTHROPIC_API_KEY=sk-ant-... node bot/bot.js
+```
+
+**Setup in @BotFather, once:** `/newbot` to get a token, then
+**`/setprivacy` → Disable**. This is not optional — with privacy mode on (the default) a bot only
+receives messages that start with a command, so there is nothing to recap. Then add the bot to a
+group.
+
+Commands: `/wrapped [month|year|all]`, `/stats`, `/weekly on|off`, `/privacy`, `/forgetme`,
+`/stopdata`.
+
+| File | What it does |
+| --- | --- |
+| `bot/bot.js` | Long-poll loop, commands, weekly schedule, pruning |
+| `bot/telegram.js` | Bot API client + 4096-char message splitting |
+| `bot/store.js` | Per-chat JSONL store, retention, per-user deletion |
+| `bot/render.js` | Deck → Telegram HTML |
+
+The bot normalises Telegram messages into the same shape `parser.js` produces, so `stats.js` and
+`deck.js` are shared with the web app unchanged — a new award appears in both at once.
+
+**Telegram gives bots no access to history from before they joined.** The bot records forward from
+the moment it's added, which is why `/weekly` matters more here than `/wrapped all`: it turns the
+recap into a habit rather than a one-off.
+
+**Privacy is load-bearing here**, because unlike the web app this stores other people's messages
+server-side. What's implemented: it announces itself on join, stores only timestamp + display name +
+text + a media flag (no user IDs, usernames, or reply chains), keeps first-name-plus-initial rather
+than full names, deletes after `TELEGRAM_RETENTION_DAYS` (default 400), and honours `/forgetme` per
+person and `/stopdata` per group. Don't weaken any of that — it's the difference between a bot
+people add and a bot people report.
+
+| Env var | Default | Purpose |
+| --- | --- | --- |
+| `TELEGRAM_BOT_TOKEN` | — | Required |
+| `ANTHROPIC_API_KEY` | — | Omit for stats-only reports |
+| `TELEGRAM_STORE` | `./.data/telegram` | Message store |
+| `TELEGRAM_RETENTION_DAYS` | `400` | Auto-delete window |
+| `TELEGRAM_DAILY_AI_LIMIT` | `5` | AI reports per group per day |
+| `TELEGRAM_WEEKLY_DAY` / `_HOUR` | `0` / `18` | When weekly posts fire (server local time) |
+| `TELEGRAM_API_BASE` | `https://api.telegram.org` | Override for tests or a self-hosted Bot API |
+
 ## On getting chats in more easily
 
 There is no easier WhatsApp path than the 4-tap export, and the "connect your number" ideas are

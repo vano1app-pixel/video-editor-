@@ -30,6 +30,28 @@ function humanDuration(minutes) {
   return `${Math.round(hours / 24)} days`;
 }
 
+/**
+ * Only claim a multiplier when there is one worth claiming — a 34-vs-48-minute
+ * gap rounds to "1x longer", which reads as broken.
+ */
+function ghostLine(fastest, ghost) {
+  const ratio = ghost.medianReplyMin / Math.max(1, fastest.medianReplyMin);
+  if (ratio >= 2) {
+    return `${firstName(ghost.name)} takes ${Math.round(
+      ratio
+    )}x longer to reply. Everyone has noticed.`;
+  }
+  const gap = ghost.medianReplyMin - fastest.medianReplyMin;
+  if (gap >= 5) {
+    return `${firstName(ghost.name)} is ${replyTime(gap)} behind ${firstName(
+      fastest.name
+    )}. Not a huge gap, but a consistent one.`;
+  }
+  return `Closer than anyone would admit — ${replyTime(
+    Math.max(1, gap)
+  )} between the fastest and the slowest.`;
+}
+
 function replyTime(minutes) {
   if (minutes < 1) return 'under a minute';
   if (minutes < 60) return `${minutes} min`;
@@ -170,12 +192,7 @@ export function buildDeck(stats, ai = null, label = 'All time') {
         name: firstName(sup.ghost.name),
         value: replyTime(sup.ghost.medianReplyMin),
       },
-      line: line(
-        'replies',
-        `${firstName(sup.ghost.name)} takes ${Math.round(
-          sup.ghost.medianReplyMin / Math.max(1, sup.fastestReplier.medianReplyMin)
-        )}x longer to reply. Everyone has noticed.`
-      ),
+      line: line('replies', ghostLine(sup.fastestReplier, sup.ghost)),
     });
   }
 
