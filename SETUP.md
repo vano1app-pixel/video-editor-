@@ -46,7 +46,50 @@ silence — no captions, and much dumber choices about what's interesting.
 
 ---
 
-## Step 3 — Configure and run
+## Step 3 — Google Drive (optional)
+
+Only needed if you want EditAi to scan videos straight out of your Drive instead
+of dragging files in. Drag-and-drop works without any of this.
+
+This one isn't a "buy credits and copy a key" flow — Google makes you create an
+app. It's free, and takes about 5 minutes.
+
+1. Go to **https://console.cloud.google.com**
+2. Top bar → project dropdown → **New Project**. Name it `EditAi`. Create, then
+   make sure it's the selected project.
+3. **APIs & Services** → **Library** → search **Google Drive API** → **Enable**.
+4. **APIs & Services** → **OAuth consent screen**:
+   - User type **External** → Create
+   - App name `EditAi`, your email for both support and developer contact → Save
+   - **Scopes** → Add or remove scopes → search `drive.readonly` → tick
+     `.../auth/drive.readonly` → Update → Save
+   - **Test users** → Add users → **add your own Google address**. While the app
+     is unpublished only test users can sign in — if you skip this, your own
+     login gets rejected.
+5. **APIs & Services** → **Credentials** → **Create Credentials** →
+   **OAuth client ID**:
+   - Application type: **Web application**
+   - Name: `EditAi local`
+   - **Authorized redirect URIs** → Add URI →
+     `http://localhost:3000/api/drive/callback`
+     *(this must match exactly — a trailing slash breaks it)*
+   - Create
+6. Copy the **Client ID** and **Client secret** into `.env`:
+   ```
+   GOOGLE_CLIENT_ID=....apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=GOCSPX-...
+   ```
+
+Restart the dev server and the "Connect Google Drive" button goes live. EditAi
+requests **read-only** access and never writes to your Drive.
+
+> Deploying somewhere other than localhost? Add that origin's callback URL to
+> the same Authorized redirect URIs list and set `PUBLIC_BASE_URL` in `.env`, or
+> set `GOOGLE_REDIRECT_URI` explicitly.
+
+---
+
+## Step 4 — Configure and run
 
 ```bash
 cp .env.example .env

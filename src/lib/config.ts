@@ -107,3 +107,30 @@ export const RENDER_DEFAULTS = {
 /** Public base URL, used to build absolute links in responses. */
 export const PUBLIC_BASE_URL =
   process.env.PUBLIC_BASE_URL ?? `http://localhost:${process.env.PORT ?? 3000}`;
+
+// --- Google Drive ---------------------------------------------------------
+
+export const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? "";
+export const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? "";
+
+/** Must match the redirect URI registered in the Google Cloud console. */
+export const GOOGLE_REDIRECT_URI =
+  process.env.GOOGLE_REDIRECT_URI ?? `${PUBLIC_BASE_URL}/api/drive/callback`;
+
+/** Read-only Drive access — EditAi never writes to the user's Drive. */
+export const GOOGLE_SCOPES = ["https://www.googleapis.com/auth/drive.readonly"];
+
+export function driveConfigured(): boolean {
+  return GOOGLE_CLIENT_ID.length > 0 && GOOGLE_CLIENT_SECRET.length > 0;
+}
+
+// --- Retention ------------------------------------------------------------
+
+/**
+ * Delete uploads, renders and job records older than this. Renders are large;
+ * without a sweep a busy instance fills its volume and every job starts failing.
+ */
+export const RETENTION_HOURS = envInt("RETENTION_HOURS", 72);
+
+/** Skip the sweep entirely by setting RETENTION_HOURS=0. */
+export const RETENTION_ENABLED = RETENTION_HOURS > 0;
