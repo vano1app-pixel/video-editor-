@@ -1,8 +1,10 @@
 import { parseChat, windowMessages } from './parser.js';
 import { computeStats, buildAiPayload } from './stats.js';
 import { buildDeck } from './deck.js';
+import { findMoments, assignTags } from './moments.js';
 import { generateCopy, PaymentRequiredError } from './ai.js';
 import { PACKS } from './pricing.js';
+import { BRAND } from './brand.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -122,6 +124,9 @@ async function run() {
   }
 
   const label = WINDOWS.find((w) => w.days === state.windowDays).label;
+  const moments = findMoments(slice);
+  moments.tags = assignTags(stats);
+
   $('#go').disabled = true;
   $('#spinner').classList.remove('hidden');
 
@@ -130,7 +135,7 @@ async function run() {
   const apiKey = $('#apikey').value.trim();
   try {
     setStatus('Writing your awards…');
-    ai = await generateCopy(buildAiPayload(stats, slice), {
+    ai = await generateCopy(buildAiPayload(stats, slice, moments), {
       apiKey: apiKey || undefined,
       creditKey: state.creditKey,
       tone: state.tone,
@@ -149,7 +154,7 @@ async function run() {
   $('#spinner').classList.add('hidden');
   $('#go').disabled = false;
 
-  state.deck = buildDeck(stats, ai, label);
+  state.deck = buildDeck(stats, ai, label, moments);
   openPlayer();
 
   // Show the deck first, then ask for money — the preview is the pitch.
@@ -256,7 +261,8 @@ function go(delta) {
 function paint() {
   const card = state.deck[state.cursor];
   const stage = $('#stage');
-  stage.style.background = card.palette.bg;
+  // Soft top-left highlight over the gradient — stops big flat fills looking dead.
+  stage.style.background = `radial-gradient(120% 80% at 12% 0%, ${card.palette.glow}22 0%, transparent 60%), ${card.palette.bg}`;
 
   $('#cardHost').innerHTML = renderCard(card);
   $('#cardHost').className = 'card enter';
@@ -362,6 +368,39 @@ function renderCard(c) {
         )}</div><div class="vl">${esc(c.right.value)}</div></div>
       </div>${line}`;
 
+    case 'quote':
+      return `${eyebrow}<div class="quote"><span class="mark">“</span>${esc(
+        c.quote
+      )}</div><div class="attrib">— ${esc(c.attribution)}<span>${esc(
+        c.meta
+      )}</span></div>${line}`;
+
+    case 'tags': {
+      const rows = c.rows
+        .map(
+          (r) =>
+            `<div class="tag"><span class="who">${esc(r.name)}</span>
+             <span class="title">${esc(r.tag)}</span>
+             <span class="detail">${esc(r.detail)}</span></div>`
+        )
+        .join('');
+      return `${eyebrow}<div class="headline">${esc(
+        c.title
+      )}</div><div class="tags">${rows}</div>${line}`;
+    }
+
+    case 'plans': {
+      const dead = c.deadest
+        ? `<div class="deadplan"><span class="mark">“</span>${esc(c.deadest)}<em>— ${esc(
+            c.deadestAuthor
+          )}, no replies</em></div>`
+        : '';
+      return `${eyebrow}<div class="planrow"><span class="big">${c.proposed}</span>
+          <span class="lbl">plans proposed</span></div>
+        <div class="planrow dead"><span class="big">${c.ignored}</span>
+          <span class="lbl">went nowhere</span></div>${dead}${line}`;
+    }
+
     case 'share': {
       const grid = c.stats
         .map((s) => `<div><div class="k">${esc(s.k)}</div><div class="v">${esc(s.v)}</div></div>`)
@@ -387,30 +426,66 @@ async function saveCard() {
   canvas.height = H;
   const ctx = canvas.getContext('2d');
 
-  // Approximate the CSS gradient with its two stops.
+  // Approximate the CSS gradient with all of its stops.
   const stops = c.palette.bg.match(/#[0-9a-f]{6}/gi) || ['#1DB954', '#0b6b31'];
-  const grad = ctx.createLinearGradient(0, 0, W * 0.4, H);
-  grad.addColorStop(0, stops[0]);
-  grad.addColorStop(1, stops[1] || stops[0]);
+  const grad = ctx.createLinearGradient(0, 0, W * 0.45, H);
+  stops.forEach((s, i) => grad.addColorStop(i / Math.max(1, stops.length - 1), s));
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
+
+  // Matching highlight so the export looks like the card on screen.
+  if (c.palette.glow) {
+    const glow = ctx.createRadialGradient(W * 0.12, 0, 0, W * 0.12, 0, W * 1.1);
+    glow.addColorStop(0, `${c.palette.glow}2e`);
+    glow.addColorStop(1, 'transparent');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, H);
+  }
 
   ctx.fillStyle = '#fff';
   ctx.textBaseline = 'top';
 
   const pad = 96;
-  let y = 420;
+  let y = 0;
+
+  // Two passes: collect the lines to measure the block, then draw it centred.
+  // Otherwise short cards float at the top with a dead lower half.
+  let measuring = true;
+  const ops = [];
 
   const write = (text, size, weight, gap, alpha = 1) => {
-    ctx.globalAlpha = alpha;
     ctx.font = `${weight} ${size}px Inter, Helvetica, Arial, sans-serif`;
-    for (const l of wrap(ctx, String(text), W - pad * 2)) {
+    const lines = wrap(ctx, String(text), W - pad * 2);
+    if (measuring) {
+      ops.push({ lines, size, weight, gap, alpha });
+      y += lines.length * size * 1.08 + gap;
+      return;
+    }
+    ctx.globalAlpha = alpha;
+    for (const l of lines) {
       ctx.fillText(l, pad, y);
       y += size * 1.08;
     }
     y += gap;
     ctx.globalAlpha = 1;
   };
+
+  const draw = () => {
+    measuring = false;
+    // Sit slightly above centre — visually centred, and clear of the brand mark.
+    y = Math.max(180, (H - 260 - blockHeight) / 2);
+    for (const op of ops) {
+      ctx.font = `${op.weight} ${op.size}px Inter, Helvetica, Arial, sans-serif`;
+      ctx.globalAlpha = op.alpha;
+      for (const l of op.lines) {
+        ctx.fillText(l, pad, y);
+        y += op.size * 1.08;
+      }
+      y += op.gap;
+      ctx.globalAlpha = 1;
+    }
+  };
+  let blockHeight = 0;
 
   write((c.eyebrow || '').toUpperCase(), 34, '800', 26, 0.75);
 
@@ -421,6 +496,26 @@ async function saveCard() {
   } else if (c.kind === 'bignumber') {
     write(c.value, 190, '900', 6);
     write(c.unit, 52, '700', 26, 0.9);
+  } else if (c.kind === 'quote') {
+    write(`“${c.quote}”`, 66, '800', 26);
+    write(`— ${c.attribution}`, 48, '900', 6);
+    write(c.meta, 38, '700', 26, 0.8);
+  } else if (c.kind === 'tags') {
+    write(c.title, 88, '900', 30);
+    for (const r of c.rows.slice(0, 8)) {
+      write(`${r.name} — ${r.tag}`, 46, '800', 4);
+      write(r.detail, 32, '600', 16, 0.75);
+    }
+  } else if (c.kind === 'plans') {
+    write(String(c.proposed), 150, '900', 2);
+    write('plans proposed', 44, '700', 22, 0.9);
+    write(String(c.ignored), 150, '900', 2);
+    write('went nowhere', 44, '700', 26, 0.9);
+    if (c.deadest) {
+      // The dead plan is the joke — it belongs on the shared image.
+      write(`“${c.deadest}”`, 44, '700', 6);
+      write(`— ${c.deadestAuthor}, no replies`, 32, '800', 26, 0.75);
+    }
   } else if (c.kind === 'share') {
     write(c.title, 104, '900', 30);
     for (const s of c.stats) {
@@ -433,9 +528,22 @@ async function saveCard() {
 
   if (c.line) write(c.line, 46, '600', 0, 0.94);
 
-  ctx.globalAlpha = 0.6;
-  ctx.font = '800 30px Inter, Helvetica, Arial, sans-serif';
-  ctx.fillText('CHAT WRAPPED', pad, H - 140);
+  blockHeight = y;
+  draw();
+
+  // Brand lockup, bottom left — this is what travels with the screenshot.
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = '#fff';
+  const dot = 34;
+  const baseY = H - 150;
+  ctx.beginPath();
+  ctx.roundRect(pad, baseY, dot, dot, 9);
+  ctx.fill();
+  ctx.font = '900 34px Inter, Helvetica, Arial, sans-serif';
+  ctx.fillText(BRAND.name.toUpperCase(), pad + dot + 16, baseY - 1);
+  ctx.globalAlpha = 0.7;
+  ctx.font = '700 28px Inter, Helvetica, Arial, sans-serif';
+  ctx.fillText(BRAND.url, pad + dot + 16, baseY + 40);
   ctx.globalAlpha = 1;
 
   const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
@@ -479,6 +587,7 @@ function wrap(ctx, text, maxWidth) {
 
 function init() {
   renderChips();
+  $('#watermark').innerHTML = `<b>${esc(BRAND.name)}</b><span>${esc(BRAND.url)}</span>`;
 
   const drop = $('#drop');
   const input = $('#file');

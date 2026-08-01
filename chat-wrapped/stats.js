@@ -240,7 +240,7 @@ function longestSilence(messages) {
  * A compact, privacy-conscious payload for the writer model: aggregate numbers
  * plus a sample of real messages so the copy can reference actual jokes.
  */
-export function buildAiPayload(stats, messages, sampleSize = 70) {
+export function buildAiPayload(stats, messages, moments = null, sampleSize = 70) {
   const candidates = messages.filter(
     (m) => !m.isMedia && !m.isDeleted && m.text.length > 12 && m.text.length < 300
   );
@@ -284,6 +284,34 @@ export function buildAiPayload(stats, messages, sampleSize = 70) {
       topEmojis: p.topEmojis.map((e) => e.emoji),
       topWords: p.topWords.map((w) => w.word),
     })),
+    // The specific moments the deck will quote, so the copy can react to the
+    // same messages the reader is looking at instead of talking past them.
+    moments: moments
+      ? {
+          funniest: moments.funniest && {
+            text: moments.funniest.text,
+            from: moments.funniest.author,
+            laughers: moments.funniest.laughers,
+          },
+          weirdest: moments.weirdest && {
+            text: moments.weirdest.text,
+            from: moments.weirdest.author,
+          },
+          biggest: moments.biggest && {
+            text: moments.biggest.text,
+            from: moments.biggest.author,
+            replies: moments.biggest.replies,
+          },
+          plans: moments.plans && {
+            proposed: moments.plans.proposed,
+            ignored: moments.plans.ignored,
+            ignoredRate: moments.plans.ignoredRate,
+            topProposer: moments.plans.topProposer,
+            deadest: moments.plans.deadest?.text,
+          },
+          tags: moments.tags,
+        }
+      : undefined,
     sample,
   };
 }

@@ -264,10 +264,12 @@ button {
 .card {
   position: absolute;
   inset: 0;
-  padding: 74px 30px 96px;
+  padding: 70px 30px 128px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  /* Anchored low rather than centred — deliberate space above the content is
+     what makes a story card read as designed instead of vertically adrift. */
+  justify-content: flex-end;
   gap: 18px;
   color: #fff;
 }
@@ -505,6 +507,139 @@ button {
   opacity: 0.9;
 }
 
+/* ---------- Quoted moments ---------- */
+
+.quote {
+  position: relative;
+  font-size: clamp(24px, 6.4vw, 32px);
+  line-height: 1.22;
+  letter-spacing: -0.025em;
+  font-weight: 800;
+  padding-top: 26px;
+}
+
+.quote .mark {
+  position: absolute;
+  top: -22px;
+  left: -6px;
+  font-size: 108px;
+  line-height: 1;
+  opacity: 0.28;
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
+.attrib {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 19px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+}
+
+.attrib span {
+  font-size: 14px;
+  font-weight: 700;
+  opacity: 0.72;
+  letter-spacing: 0;
+}
+
+/* ---------- Everyone, labelled ---------- */
+
+.tags {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.tag {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: 'who title' 'who detail';
+  align-items: center;
+  gap: 0 12px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.tag .who {
+  grid-area: who;
+  font-size: 19px;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+}
+
+.tag .title {
+  grid-area: title;
+  text-align: right;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+}
+
+.tag .detail {
+  grid-area: detail;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.72;
+}
+
+/* ---------- Plans ---------- */
+
+.planrow {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.planrow .big {
+  font-size: clamp(52px, 15vw, 78px);
+  font-weight: 900;
+  letter-spacing: -0.05em;
+  line-height: 0.9;
+}
+
+.planrow .lbl {
+  font-size: 17px;
+  font-weight: 800;
+  opacity: 0.9;
+}
+
+.planrow.dead .big {
+  opacity: 0.55;
+}
+
+.deadplan {
+  position: relative;
+  margin-top: 6px;
+  padding: 16px 16px 14px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.22);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.deadplan .mark {
+  font-family: Georgia, serif;
+  font-size: 34px;
+  line-height: 0;
+  opacity: 0.4;
+  margin-right: 2px;
+  vertical-align: -6px;
+}
+
+.deadplan em {
+  display: block;
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  font-style: normal;
+  opacity: 0.7;
+}
+
 .sharegrid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -602,16 +737,39 @@ button {
   border: 1px solid rgba(255, 255, 255, 0.22);
 }
 
+/* Every shared screenshot carries this, so it doubles as the only marketing
+   that ships with the product. Keep it readable. */
 .watermark {
   position: absolute;
-  bottom: 74px;
+  bottom: 76px;
   left: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
   font-weight: 800;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  opacity: 0.55;
+  opacity: 0.82;
   z-index: 2;
+}
+
+.watermark::before {
+  content: '';
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.watermark b {
+  font-weight: 900;
+}
+
+.watermark span {
+  opacity: 0.7;
+  letter-spacing: 0.06em;
+  text-transform: none;
 }
 
 /* ---------- Paywall ---------- */

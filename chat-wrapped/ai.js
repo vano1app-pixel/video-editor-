@@ -28,7 +28,7 @@ const TOOL = {
       lines: {
         type: 'object',
         description:
-          'Copy keyed by card id. Supply any of: intro, total, leaderboard, yapper, clock, nightowl, emoji, words, replies, comedian, planner, silence, busiest.',
+          'Copy keyed by card id. Supply any of: intro, total, leaderboard, yapper, clock, nightowl, emoji, words, replies, funniest, biggest, weirdest, plans, comedian, planner, silence, busiest, tags.',
         additionalProperties: { type: 'string' },
       },
       awards: {
@@ -68,7 +68,7 @@ function userPrompt(payload, tone) {
 
   return `${toneNote}
 
-Here is the chat data. Aggregates are exact; the sample is a spread of real messages so you can find the running jokes.
+Here is the chat data. Aggregates are exact; the sample is a spread of real messages so you can find the running jokes. \`moments\` holds the specific messages the deck will quote on screen — your copy for those cards sits directly underneath the quote, so react to it rather than restating it.
 
 ${JSON.stringify(payload, null, 1)}
 

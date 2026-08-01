@@ -1,14 +1,17 @@
 // Turns a stat block into an ordered deck of story cards.
 // Every card works without AI; AI copy fills the `line` slots when available.
 
+// Each palette is a two-stop gradient plus a soft highlight, so consecutive
+// cards read as one family without any two looking alike in a screenshot roll.
 const PALETTES = [
-  { bg: 'linear-gradient(160deg,#1DB954 0%,#0b6b31 100%)', ink: '#03180c', accent: '#ffffff' },
-  { bg: 'linear-gradient(160deg,#FF6B6B 0%,#8E2DE2 100%)', ink: '#2a0033', accent: '#fff3b0' },
-  { bg: 'linear-gradient(160deg,#FFD166 0%,#EF476F 100%)', ink: '#3d0a1c', accent: '#22143a' },
-  { bg: 'linear-gradient(160deg,#06D6A0 0%,#118AB2 100%)', ink: '#02272f', accent: '#fff6d6' },
-  { bg: 'linear-gradient(160deg,#845EC2 0%,#2C73D2 100%)', ink: '#0d0730', accent: '#ffd6ff' },
-  { bg: 'linear-gradient(160deg,#F9F871 0%,#00C9A7 100%)', ink: '#0a2b26', accent: '#123a2f' },
-  { bg: 'linear-gradient(160deg,#FF9671 0%,#D65DB1 100%)', ink: '#38062c', accent: '#fff0f6' },
+  { bg: 'linear-gradient(155deg,#1DB954 0%,#0A5C2C 55%,#04381B 100%)', glow: '#7bffb0' },
+  { bg: 'linear-gradient(155deg,#FF5F6D 0%,#B02EA8 55%,#5B1B7B 100%)', glow: '#ffd0e4' },
+  { bg: 'linear-gradient(155deg,#FFC93C 0%,#F0576B 60%,#8E1D4E 100%)', glow: '#fff2b8' },
+  { bg: 'linear-gradient(155deg,#00E1A0 0%,#0E8FC4 55%,#0A3E70 100%)', glow: '#c8fff0' },
+  { bg: 'linear-gradient(155deg,#9B5DE5 0%,#3A6FE0 55%,#17255F 100%)', glow: '#e6d4ff' },
+  { bg: 'linear-gradient(155deg,#F1FA6E 0%,#00C9A7 55%,#08594F 100%)', glow: '#f6ffd9' },
+  { bg: 'linear-gradient(155deg,#FF9A5A 0%,#E0489F 55%,#6C1450 100%)', glow: '#ffe0ee' },
+  { bg: 'linear-gradient(155deg,#42E8E0 0%,#3A5BD9 55%,#1B1F5C 100%)', glow: '#d6fbff' },
 ];
 
 const HOUR_LABEL = (h) => {
@@ -58,12 +61,18 @@ function replyTime(minutes) {
   return `${Math.round((minutes / 60) * 10) / 10} hours`;
 }
 
+function truncate(text, max = 180) {
+  const t = text.replace(/\s+/g, ' ').trim();
+  return t.length <= max ? t : `${t.slice(0, max - 1).trimEnd()}…`;
+}
+
 /**
- * @param stats  output of computeStats
- * @param ai     optional { title, lines: {cardId: string}, awards: [], verdict }
- * @param label  the window name, e.g. "Last 7 days"
+ * @param stats    output of computeStats
+ * @param ai       optional { title, lines: {cardId: string}, awards: [], verdict }
+ * @param label    the window name, e.g. "Last 7 days"
+ * @param moments  optional output of findMoments — adds the quoted cards
  */
-export function buildDeck(stats, ai = null, label = 'All time') {
+export function buildDeck(stats, ai = null, label = 'All time', moments = null) {
   const s = stats;
   const sup = s.superlatives;
   const cards = [];
@@ -196,6 +205,70 @@ export function buildDeck(stats, ai = null, label = 'All time') {
     });
   }
 
+  if (moments?.funniest) {
+    cards.push({
+      id: 'funniest',
+      kind: 'quote',
+      eyebrow: 'The funniest thing said',
+      quote: truncate(moments.funniest.text),
+      attribution: moments.funniest.author,
+      meta: `made ${moments.funniest.laughers} ${
+        moments.funniest.laughers === 1 ? 'person' : 'people'
+      } laugh`,
+      line: line('funniest', 'Peaked. It has been downhill since.'),
+    });
+  }
+
+  if (moments?.biggest) {
+    cards.push({
+      id: 'biggest',
+      kind: 'quote',
+      eyebrow: 'The message that set it off',
+      quote: truncate(moments.biggest.text),
+      attribution: moments.biggest.author,
+      meta: `${moments.biggest.replies} replies in 15 minutes`,
+      line: line(
+        'biggest',
+        `${moments.biggest.people} people dropped everything to respond to this.`
+      ),
+    });
+  }
+
+  if (moments?.weirdest) {
+    cards.push({
+      id: 'weirdest',
+      kind: 'quote',
+      eyebrow: 'The weirdest thing said',
+      quote: truncate(moments.weirdest.text),
+      attribution: moments.weirdest.author,
+      meta: moments.weirdest.ts.toLocaleString(undefined, {
+        weekday: 'long',
+        hour: 'numeric',
+        minute: '2-digit',
+      }),
+      line: line('weirdest', 'No context was provided. None was offered afterwards.'),
+    });
+  }
+
+  if (moments?.plans?.proposed >= 3) {
+    const p = moments.plans;
+    cards.push({
+      id: 'plans',
+      kind: 'plans',
+      eyebrow: 'Plans',
+      proposed: p.proposed,
+      ignored: p.ignored,
+      ignoredRate: p.ignoredRate,
+      proposer: p.topProposer,
+      deadest: p.deadest ? truncate(p.deadest.text, 120) : null,
+      deadestAuthor: p.deadest?.author || null,
+      line: line(
+        'plans',
+        `${p.ignoredRate}% of plans proposed here got fewer than two takers.`
+      ),
+    });
+  }
+
   if (sup.comedian && sup.comedian.laughs > 3) {
     cards.push({
       id: 'comedian',
@@ -259,6 +332,17 @@ export function buildDeck(stats, ai = null, label = 'All time') {
       person: firstName(a.person),
       stat: a.stat || '',
       line: a.line || '',
+    });
+  }
+
+  if (moments?.tags?.length > 1) {
+    cards.push({
+      id: 'tags',
+      kind: 'tags',
+      eyebrow: 'Everyone, labelled',
+      title: 'Your official titles',
+      rows: moments.tags,
+      line: line('tags', 'Screenshot this one. Argue about it later.'),
     });
   }
 

@@ -16,6 +16,7 @@ import { renderDeck } from './render.js';
 import { computeStats, buildAiPayload } from '../stats.js';
 import { buildDeck } from '../deck.js';
 import { generateCopy } from '../ai.js';
+import { findMoments, assignTags } from '../moments.js';
 import { windowMessages } from '../parser.js';
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -146,11 +147,14 @@ async function buildReport(chatId, windowSpec) {
   const stats = computeStats(slice);
   if (!stats) return { text: 'Not enough to work with yet.' };
 
+  const moments = findMoments(slice);
+  moments.tags = assignTags(stats);
+
   let ai = null;
   let note = '';
   if (ANTHROPIC_KEY && (await takeAiSlot(chatId))) {
     try {
-      ai = await generateCopy(buildAiPayload(stats, slice), {
+      ai = await generateCopy(buildAiPayload(stats, slice, moments), {
         apiKey: ANTHROPIC_KEY,
         tone: 'balanced',
       });
@@ -162,7 +166,7 @@ async function buildReport(chatId, windowSpec) {
     note = `\n\n<i>(Daily award limit reached — stats only. Resets at midnight.)</i>`;
   }
 
-  return { text: renderDeck(buildDeck(stats, ai, windowSpec.label)) + note };
+  return { text: renderDeck(buildDeck(stats, ai, windowSpec.label, moments)) + note };
 }
 
 /* ---------------- commands ---------------- */

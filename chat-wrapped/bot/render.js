@@ -61,6 +61,27 @@ function card(c) {
         c.right.value
       )}${line}`;
 
+    case 'quote':
+      return `<b>${esc(c.eyebrow)}</b>\n<blockquote>${esc(c.quote)}</blockquote>— <b>${esc(
+        c.attribution
+      )}</b>, ${esc(c.meta)}${line}`;
+
+    case 'tags': {
+      const rows = c.rows
+        .map((r) => `<b>${esc(r.name)}</b> — ${esc(r.tag)}\n   <i>${esc(r.detail)}</i>`)
+        .join('\n');
+      return `🏷 <b>${esc(c.title)}</b>\n${rows}${line}`;
+    }
+
+    case 'plans': {
+      const dead = c.deadest
+        ? `\n<blockquote>${esc(c.deadest)}</blockquote><i>— ${esc(
+            c.deadestAuthor
+          )}, no replies</i>`
+        : '';
+      return `📅 <b>Plans</b>\n<b>${c.proposed}</b> proposed · <b>${c.ignored}</b> went nowhere${dead}${line}`;
+    }
+
     case 'share':
       return c.stats.map((s) => `${esc(s.k)}: <b>${esc(s.v)}</b>`).join('\n');
 
