@@ -4,6 +4,8 @@
 // exports carry no reactions or reply threads, so "funniest" is inferred from
 // how the group responded in the seconds after a message landed.
 
+import { EMOJI, firstName, plural } from './text.js';
+
 const LAUGH_SIGNAL =
   /(?:\bl+o+l+\b|\bl+m+f?a+o+\b|h[ae]h[ae]h[ae]+|\ba?h+a+h+[ah]*\b|😂|🤣|💀|😭|\bdying\b|\bdead\b|\bcrying\b|\bstop\b)/iu;
 
@@ -19,8 +21,6 @@ const PLAN_CONTEXT =
 const NOT_A_PLAN = /\banything from\b|\ba lift\b|\bcharger\b/i;
 
 const PLAN_YES = /\b(?:yes|yeah|yep|ye|sound|deadly|im in|i'm in|in|down|grand|👍|✅|see you|cya|perfect|great)\b/i;
-
-const EMOJI = /\p{Extended_Pictographic}/gu;
 
 const REPLY_WINDOW_MIN = 30;
 const BURST_WINDOW_MIN = 15;
@@ -110,16 +110,6 @@ function weirdnessScore(m, freq, totalWords) {
   return (
     rareRatio * 3 + nocturnal * 1.6 + emojiSpam * 1.2 + longform * 1.4 + shouting * 1.5 + punctuation
   );
-}
-
-/** Naive pluraliser — every unit used here is a regular noun. */
-function plural(word, n) {
-  if (n === 1 || !word) return word;
-  return word.endsWith('s') ? word : `${word}s`;
-}
-
-function firstName(name = '') {
-  return name.split(/\s+/)[0].replace(/[^\p{L}\p{N}'’-]/gu, '') || name;
 }
 
 /**

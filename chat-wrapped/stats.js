@@ -1,5 +1,7 @@
 // All the number-crunching. Pure functions over parsed messages, no network.
 
+import { EMOJI } from './text.js';
+
 const STOPWORDS = new Set(
   `a an the and or but if then than that this these those i im i'm you your youre you're he she it we they me him her us them my mine our ours their theirs is am are was were be been being do does did doing have has had having will would shall should can could may might must not no nor so as at by for from in into of off on onto out over to up with about after again all also any because before both during each few more most other own same some such only very just how what when where which who whom why yeah yea yes ok okay oh ah eh um uh lol lmao haha hahaha hah k kk ye ya na nah bruh bro dude man like get got go going gone know think really actually still even back one two dont don't cant can't didnt didn't im ill i'll ive i've thats that's whats what's its it's u ur r n y idk omg wtf tbh rn ngl fr`
     .split(/\s+/)
@@ -8,9 +10,6 @@ const STOPWORDS = new Set(
 const LAUGH = /\b(?:l+o+l+|l+m+f?a+o+|h[ae]h[ae]h[ae]+|a?h+a+h+[ah]*|😂|🤣|💀)\b|😂|🤣|💀/giu;
 const LINK = /https?:\/\/\S+/gi;
 const QUESTION = /\?/;
-const EMOJI =
-  /(?:\p{Extended_Pictographic}(?:️)?(?:‍\p{Extended_Pictographic}(?:️)?)*)/gu;
-
 const PLAN_WORDS =
   /\b(?:tomorrow|tonight|weekend|saturday|sunday|friday|later|meet|meetup|plan|plans|book|booking|pub|drinks|dinner|lunch|brunch|trip|holiday|session|we should|lets|let's|shall we|you free|u free|who's in|whos in)\b/i;
 

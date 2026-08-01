@@ -1,6 +1,8 @@
 // Turns a stat block into an ordered deck of story cards.
 // Every card works without AI; AI copy fills the `line` slots when available.
 
+import { firstName, truncate } from './text.js';
+
 // Each palette is a two-stop gradient plus a soft highlight, so consecutive
 // cards read as one family without any two looking alike in a screenshot roll.
 const PALETTES = [
@@ -21,10 +23,6 @@ const HOUR_LABEL = (h) => {
 };
 
 const fmt = (n) => n.toLocaleString();
-
-function firstName(name = '') {
-  return name.split(/\s+/)[0].replace(/[^\p{L}\p{N}'’-]/gu, '') || name;
-}
 
 function humanDuration(minutes) {
   if (minutes < 60) return `${Math.round(minutes)} minutes`;
@@ -59,11 +57,6 @@ function replyTime(minutes) {
   if (minutes < 1) return 'under a minute';
   if (minutes < 60) return `${minutes} min`;
   return `${Math.round((minutes / 60) * 10) / 10} hours`;
-}
-
-function truncate(text, max = 180) {
-  const t = text.replace(/\s+/g, ' ').trim();
-  return t.length <= max ? t : `${t.slice(0, max - 1).trimEnd()}…`;
 }
 
 /**

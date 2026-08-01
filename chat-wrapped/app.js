@@ -8,6 +8,14 @@ import { BRAND } from './brand.js';
 
 const $ = (sel) => document.querySelector(sel);
 
+/**
+ * Standalone builds (tools/build-standalone.mjs) run as a single file with no
+ * server behind them, so there is nothing to call for the written awards and
+ * nothing to sell. The deck is generated entirely in the browser either way —
+ * this only skips the writer and the paywall.
+ */
+const STANDALONE = typeof window !== 'undefined' && window.CW_STANDALONE === true;
+
 const state = {
   messages: [],
   windowDays: 30,
@@ -132,23 +140,27 @@ async function run() {
 
   let ai = null;
   let paywalled = false;
-  const apiKey = $('#apikey').value.trim();
-  try {
-    setStatus('Writing your awards…');
-    ai = await generateCopy(buildAiPayload(stats, slice, moments), {
-      apiKey: apiKey || undefined,
-      creditKey: state.creditKey,
-      tone: state.tone,
-    });
-    if (typeof ai.credits === 'number') setCredits(ai.credits);
-  } catch (err) {
-    console.error(err);
-    if (err instanceof PaymentRequiredError) {
-      paywalled = true;
-      setStatus(err.message);
-    } else {
-      setStatus(`${err.message} — showing the stats-only version.`, true);
+  if (!STANDALONE) {
+    const apiKey = $('#apikey').value.trim();
+    try {
+      setStatus('Writing your awards…');
+      ai = await generateCopy(buildAiPayload(stats, slice, moments), {
+        apiKey: apiKey || undefined,
+        creditKey: state.creditKey,
+        tone: state.tone,
+      });
+      if (typeof ai.credits === 'number') setCredits(ai.credits);
+    } catch (err) {
+      console.error(err);
+      if (err instanceof PaymentRequiredError) {
+        paywalled = true;
+        setStatus(err.message);
+      } else {
+        setStatus(`${err.message} — showing the stats-only version.`, true);
+      }
     }
+  } else {
+    setStatus('Building your deck…');
   }
 
   $('#spinner').classList.add('hidden');
@@ -635,6 +647,13 @@ function init() {
     if (v) localStorage.setItem('cw_key', v);
     else localStorage.removeItem('cw_key');
   });
+
+  if (STANDALONE) {
+    // Nothing to sell and no writer to reach — hide both rather than showing
+    // controls that would fail if pressed.
+    for (const sel of ['#buy', '#keyfield']) $(sel)?.classList.add('hidden');
+    return;
+  }
 
   $('#closePay').onclick = () => $('#paywall').classList.add('hidden');
   $('#buy').onclick = openPaywall;
