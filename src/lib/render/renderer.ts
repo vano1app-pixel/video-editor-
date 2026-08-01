@@ -25,6 +25,7 @@ import {
   escapeFilterPath,
   parseProgressSeconds,
   runFfmpeg,
+  runFfprobe,
 } from "@/lib/ffmpeg/exec";
 import { buildAssSubtitles, buildOutputTimeline } from "@/lib/render/captions";
 import {
@@ -641,43 +642,106 @@ interface XfadeGraph {
   finalDuration: number;
 }
 
+/**
+ * Build the chained xfade/acrossfade graph that joins the stage 1 segments.
+ *
+ * `segDurs` MUST be the measured durations of the encoded segments, not the
+ * durations the plan asked for. Two properties of xfade drive everything here:
+ *
+ *  1. xfade emits exactly `offset + len(second input)`. It throws away whatever
+ *     is left of the first input once the transition ends.
+ *  2. If the transition reaches the real end of the first input, xfade stops
+ *     there and silently drops the second input altogether — no error, just a
+ *     truncated render.
+ *
+ * So every join overlaps by `visual + one frame`, keeping a frame of the
+ * accumulated stream alive past the end of the blend, and the running total is
+ * taken straight from property 1 rather than re-derived.
+ */
 function buildXfadeGraph(
   segDurs: number[],
   boundaries: Map<number, TransitionSpec>,
   fps: number,
 ): XfadeGraph {
   const n = segDurs.length;
-  const minT = 1 / fps;
+  const frame = 1 / fps;
   const parts: string[] = [];
   let vPrev = "[0:v]";
   let aPrev = "[0:a]";
   let cum = segDurs[0] ?? 0;
 
   for (let i = 1; i < n; i++) {
-    const dPrev = segDurs[i - 1] ?? 0;
     const dCur = segDurs[i] ?? 0;
     const spec = boundaries.get(i);
-    // Cap at min(1.5s, 40% of the shorter adjacent clip); never below a frame.
-    const cap = Math.max(minT, Math.min(1.5, 0.4 * Math.min(dPrev, dCur)));
 
-    let dur = minT; // "cut" boundaries become an imperceptible one-frame fade
+    // Cap at min(1.5s, 40% of the shorter side) and always leave the frame of
+    // headroom that property 2 demands.
+    const shorter = Math.min(cum, dCur);
+    const maxVisual = Math.min(1.5, 0.4 * shorter, shorter - frame);
+    if (!(maxVisual >= frame)) {
+      // Clips this short cannot be crossfaded at all; the caller falls back to
+      // a plain concat, which is always correct.
+      throw new Error(
+        `segment ${i} is too short (${fmtSec(dCur)}s) to crossfade at ${fps}fps`,
+      );
+    }
+
+    let visual = frame; // a "cut" boundary becomes an imperceptible 1-frame blend
     let kind = "fade";
     if (spec && spec.type !== "cut") {
       const want = fin(spec.durationSec) && spec.durationSec > 0 ? spec.durationSec : 0.5;
-      dur = clamp(want, minT, cap);
+      visual = clamp(want, frame, maxVisual);
       kind = spec.type === "whip" ? "wipeleft" : "fade";
     }
 
-    const offset = Math.max(0, cum - dur);
+    const overlap = visual + frame;
+    const offset = Math.max(0, cum - overlap);
+
     parts.push(
-      `${vPrev}[${i}:v]xfade=transition=${kind}:duration=${fmtSec(dur)}:offset=${fmtSec(offset)}[vx${i}]`,
+      `${vPrev}[${i}:v]xfade=transition=${kind}:duration=${fmtSec(visual)}:offset=${fmtSec(offset)}[vx${i}]`,
     );
-    parts.push(`${aPrev}[${i}:a]acrossfade=d=${fmtSec(dur)}[ax${i}]`);
+    // The audio crossfade matches the OVERLAP, not the visual blend length —
+    // acrossfade emits len1 + len2 - d, so d must equal the amount of the first
+    // input xfade discarded or the two streams drift apart down the chain.
+    parts.push(`${aPrev}[${i}:a]acrossfade=d=${fmtSec(overlap)}[ax${i}]`);
     vPrev = `[vx${i}]`;
     aPrev = `[ax${i}]`;
-    cum = cum + dCur - dur;
+    cum = offset + dCur;
   }
   return { filter: parts.join(";"), vOut: vPrev, aOut: aPrev, finalDuration: cum };
+}
+
+/**
+ * Measured duration of an encoded segment.
+ *
+ * Stage 1 quantises every segment to whole frames, so its real length is never
+ * quite the float the plan asked for (2.139s at 30fps encodes to 64 frames =
+ * 2.133s). Those few milliseconds are enough to push an xfade offset past the
+ * end of the stream, so the join must be built from what is actually on disk.
+ */
+async function probeSegmentDuration(file: string, fallback: number): Promise<number> {
+  const read = async (args: string[]): Promise<number | null> => {
+    try {
+      const { stdout } = await runFfprobe([
+        "-v",
+        "error",
+        ...args,
+        "-of",
+        "default=nw=1:nokey=1",
+        file,
+      ]);
+      const n = Number.parseFloat(stdout.trim().split(/\s+/)[0] ?? "");
+      return Number.isFinite(n) && n > 0 ? n : null;
+    } catch {
+      return null;
+    }
+  };
+  // Prefer the video stream: it is what xfade actually consumes.
+  return (
+    (await read(["-select_streams", "v:0", "-show_entries", "stream=duration"])) ??
+    (await read(["-show_entries", "format=duration"])) ??
+    fallback
+  );
 }
 
 function concatListLine(p: string): string {
@@ -865,7 +929,7 @@ export async function renderPlan(inputs: RenderInputs): Promise<void> {
 
   // ---- STAGE 2: join --------------------------------------------------------
   assertNotAborted(signal);
-  const segDurs = timeline.map((e) => Math.max(0.02, e.outEnd - e.outStart));
+  const plannedDurs = timeline.map((e) => Math.max(0.02, e.outEnd - e.outStart));
   const listPath = path.join(workDir, "list.txt");
   const concatDest = path.join(workDir, "joined_concat.mp4");
   const xfadeDest = path.join(workDir, "joined_xfade.mp4");
@@ -890,6 +954,12 @@ export async function renderPlan(inputs: RenderInputs): Promise<void> {
 
     if (hasRealTransition) {
       try {
+        // Measured, not planned: frame quantisation in stage 1 shifts every
+        // segment by a few ms, and xfade offsets built on the planned numbers
+        // overrun the real streams.
+        const segDurs = await Promise.all(
+          segPaths.map((p, i) => probeSegmentDuration(p, plannedDurs[i] ?? 0.02)),
+        );
         const graph = buildXfadeGraph(segDurs, boundaries, fps);
         const args: string[] = [];
         for (const p of segPaths) args.push("-i", p);
