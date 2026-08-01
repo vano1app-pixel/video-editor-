@@ -119,12 +119,25 @@ async function apiErrorFromResponse(
   try {
     const body = (await res.json()) as Partial<ApiError>;
     if (typeof body.error === "string" && body.error.trim() !== "") {
-      return body.error;
+      // Surface `detail` too. Without it the user sees "the planner couldn't
+      // answer that" with no way to tell a bad key from a bad request, and the
+      // only copy of the real reason is in the server log they can't see.
+      const detail =
+        typeof body.detail === "string" ? body.detail.trim() : "";
+      return detail && detail !== body.error
+        ? `${body.error} (${trimDetail(detail)})`
+        : body.error;
     }
   } catch {
     // Non-JSON error body.
   }
   return fallback;
+}
+
+/** Keep an error readable in a card: drop the noisy prefix, cap the length. */
+function trimDetail(detail: string): string {
+  const cleaned = detail.replace(/^Error:\s*/i, "").trim();
+  return cleaned.length > 300 ? `${cleaned.slice(0, 300)}…` : cleaned;
 }
 
 function SparkleIcon({ className }: { className?: string }): React.JSX.Element {

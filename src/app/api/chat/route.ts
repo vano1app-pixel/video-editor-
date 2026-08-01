@@ -78,6 +78,9 @@ export async function POST(req: Request): Promise<Response> {
     const payload: ChatResponse = { turn };
     return NextResponse.json(payload, { status: 200 });
   } catch (err) {
+    // Log server-side too — the browser only ever sees the trimmed `detail`,
+    // and a stack trace in the terminal is what makes this diagnosable.
+    console.error("[chat] planner turn failed:", err);
     const body: ApiError = {
       error: "The planner couldn't answer that.",
       detail: String(err),
