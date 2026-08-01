@@ -299,6 +299,20 @@ async function runJob(
         },
       });
 
+      // The work dir holds every intermediate segment and can dwarf the final
+      // file. Once the render has succeeded it is pure waste, so drop it here —
+      // on failure it is deliberately left behind, because it is the only
+      // artefact that makes a bad render debuggable.
+      try {
+        await fs.promises.rm(workDir, { recursive: true, force: true });
+      } catch (cleanupErr) {
+        // Never fail a finished job over housekeeping; retention sweeps later.
+        console.warn(
+          `[pipeline] could not clean work dir ${workDir}:`,
+          cleanupErr,
+        );
+      }
+
       throwIfCancelled();
 
       job.outputPath = outputPath;

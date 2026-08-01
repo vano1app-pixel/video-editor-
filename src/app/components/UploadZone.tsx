@@ -40,6 +40,8 @@ export interface UploadZoneProps {
   onRetry: () => void;
   /** Clears the error and returns to the drop target. */
   onDismissError: () => void;
+  /** Opens the Google Drive picker. The page owns the picker's chrome. */
+  onOpenDrive: () => void;
 }
 
 function formatBytes(bytes: number): string {

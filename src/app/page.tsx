@@ -5,6 +5,7 @@ import clsx from "clsx";
 
 import BriefBar from "./components/BriefBar";
 import ChatPanel from "./components/ChatPanel";
+import DrivePicker from "./components/DrivePicker";
 import PlanCard from "./components/PlanCard";
 import ProgressBar from "./components/ProgressBar";
 import ResultPlayer from "./components/ResultPlayer";
@@ -81,6 +82,22 @@ function makeMessage(role: ChatRole, content: string): ChatMessage {
 
 function isTerminalStage(stage: JobStage): boolean {
   return stage === "done" || stage === "failed" || stage === "cancelled";
+}
+
+/** Turn the ?reason= code from the Drive OAuth callback into plain English. */
+function driveErrorMessage(reason: string | null): string {
+  switch (reason) {
+    case "denied":
+      return "Google Drive access was declined. Nothing was connected.";
+    case "state":
+      return "That sign-in link expired. Please try connecting Drive again.";
+    case "no_code":
+      return "Google didn't send back a sign-in code. Please try again.";
+    case "exchange":
+      return "EditAi couldn't finish signing in to Google Drive. Please try again.";
+    default:
+      return "Connecting Google Drive didn't work. Please try again.";
+  }
 }
 
 function apiErrorFromText(text: string): string | null {
@@ -234,6 +251,51 @@ export default function Home(): React.JSX.Element {
   const [prepError, setPrepError] = useState<string | null>(null);
   const [analysisReady, setAnalysisReady] = useState(false);
 
+  const [driveOpen, setDriveOpen] = useState(false);
+  const [driveNotice, setDriveNotice] = useState<string | null>(null);
+
+  /**
+   * The single entry point into briefing. Both a dropped file and a Drive
+   * import land here, so prep polling and the chat start identically however
+   * the video arrived.
+   */
+  const acceptSource = useCallback((incoming: Source) => {
+    setSource(incoming);
+    setPrep(INITIAL_PREP);
+    setPrepError(null);
+    setAnalysisReady(false);
+    setPhase("briefing");
+  }, []);
+
+  /**
+   * Handle the OAuth landing. Google sends the browser back to "/?drive=...",
+   * so read it once on mount and strip it — otherwise a refresh re-triggers the
+   * picker. window.location is used rather than useSearchParams, which would
+   * force this whole page behind a Suspense boundary.
+   */
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const drive = params.get("drive");
+    if (!drive) return;
+
+    if (drive === "connected") {
+      setDriveNotice(null);
+      setDriveOpen(true);
+    } else if (drive === "error") {
+      setDriveOpen(false);
+      setDriveNotice(driveErrorMessage(params.get("reason")));
+    }
+
+    params.delete("drive");
+    params.delete("reason");
+    const query = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${query ? `?${query}` : ""}`,
+    );
+  }, []);
+
   // Briefing
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [brief, setBrief] = useState<Brief>(() => emptyBrief());
@@ -315,11 +377,7 @@ export default function Home(): React.JSX.Element {
           setPhase("idle");
           return;
         }
-        setSource(uploaded);
-        setPrep(INITIAL_PREP);
-        setPrepError(null);
-        setAnalysisReady(false);
-        setPhase("briefing");
+        acceptSource(uploaded);
         return;
       }
       setUploadError(
@@ -789,7 +847,16 @@ export default function Home(): React.JSX.Element {
                 onFileSelected={startUpload}
                 onRetry={retryUpload}
                 onDismissError={dismissUploadError}
+                onOpenDrive={() => setDriveOpen(true)}
               />
+              {driveNotice ? (
+                <p
+                  role="status"
+                  className="mt-4 text-center text-sm text-rose-300"
+                >
+                  {driveNotice}
+                </p>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -892,6 +959,33 @@ export default function Home(): React.JSX.Element {
           </div>
         ) : null}
       </main>
+
+      {driveOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Import from Google Drive"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-6"
+          onClick={(event) => {
+            // Backdrop click closes; clicks inside the panel must not bubble out.
+            if (event.target === event.currentTarget) setDriveOpen(false);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setDriveOpen(false);
+          }}
+        >
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-2xl border border-white/8 bg-panel shadow-2xl sm:rounded-2xl">
+            <DrivePicker
+              onImported={(imported) => {
+                setDriveOpen(false);
+                setDriveNotice(null);
+                acceptSource(imported);
+              }}
+              onClose={() => setDriveOpen(false)}
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
