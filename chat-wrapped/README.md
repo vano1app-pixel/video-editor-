@@ -104,15 +104,67 @@ makes cheap one-offs impossible, and it subsidises the pack.
 - The paywall opens **after** the deck is on screen — the preview is the pitch.
 - Credits are spent before the model call and **refunded** if it fails.
 
-## Before you take real money
+## The credit store
 
-1. **Swap the credit store.** `credits.js` writes one JSON file. Concurrent writes will drop credits
-   under load, and serverless functions don't share a disk. Move it to Postgres or Redis —
-   `grant` / `spend` / `refund` / `balance` is the whole surface to reimplement.
-2. **Rate limiting is process-local.** Fine on one box, useless across a fleet.
-3. **Privacy page.** State plainly: parsed locally, sample sent for writing, nothing stored, no
-   training. Then actually do that. One Reddit comment about privacy kills this whole category.
-4. **Abuse.** The system prompt blocks cruelty, but log refusals and spot-check output.
+`credits.js` picks its backend from the environment:
+
+| Backend | When | Use for |
+| --- | --- | --- |
+| **supabase** | `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are set | Anything that takes real money |
+| **file** | neither is set | Local development on one machine |
+
+**Serverless deployments must use Supabase.** Vercel and Netlify functions get a fresh, empty disk
+per invocation, so a file-backed ledger loses every purchase the moment the function that wrote it
+shuts down — the customer pays, the webhook writes credits, and the next request sees an empty
+store.
+
+### Setting it up
+
+```bash
+# 1. Apply the migration (once)
+#    Supabase dashboard → SQL Editor → paste supabase/001_credits.sql → Run
+#    or: supabase db execute --file supabase/001_credits.sql
+
+# 2. Grab the service role key
+#    Dashboard → Project Settings → API → service_role  (secret — server only)
+
+# 3. Point the app at it
+export SUPABASE_URL=https://<project-ref>.supabase.co
+export SUPABASE_SERVICE_ROLE_KEY=<service role key>
+
+# 4. Prove it works before trusting it with money
+node supabase/verify.mjs
+```
+
+`verify.mjs` checks the things that actually cost money if they're wrong: that 20 concurrent spends
+against 10 credits yield exactly 10 successes, that a retried Stripe webhook can't grant twice, that
+an over-spend returns null instead of going negative, and that a refund returns exactly one credit.
+
+### Why it's built this way
+
+- **Spending is a single atomic `UPDATE … WHERE credits > 0`** inside `cw_spend_credit`, so two
+  concurrent requests can never both take the last credit. This is the specific race the JSON file
+  store loses.
+- **Granting is idempotent per checkout.** Stripe retries webhooks on any non-2xx; without the
+  `cw_checkouts` guard a retry would grant a second time.
+- **RLS is enabled with no policies**, so the anon and publishable keys can read nothing. Only the
+  service role key works, and it must never reach the browser.
+- Keys are stored **hashed**; the plaintext key exists only in the buyer's browser.
+
+## Still to do before you take real money
+
+1. **Stripe account** — business details and bank account, then real `STRIPE_SECRET_KEY` and
+   `STRIPE_WEBHOOK_SECRET`. This is the long pole; verification is not instant.
+2. **Privacy policy and terms pages.** Stripe requires them, and the privacy page is also your
+   defence on Reddit. State plainly: parsed locally, sample sent for writing, nothing stored, no
+   training. Then actually do that.
+3. **A stated refund policy.**
+4. **Error alerting.** Failures currently go to `console.error` and nobody reads it.
+5. **Abuse.** The system prompt blocks cruelty, but log refusals and spot-check output.
+
+The Telegram bot's message store is deliberately **not** migrated — the bot runs as one long-lived
+process with a real disk, so JSONL is the right shape there. The serverless problem is specific to
+the web API.
 
 ## Telegram bot
 

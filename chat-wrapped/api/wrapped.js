@@ -54,8 +54,8 @@ export default async function handler(req, res) {
   // Paid callers get a generous ceiling; it exists to bound a leaked key, not
   // to ration buyers. Anonymous callers get the free allowance and nothing more.
   const limit = key
-    ? rateLimit(`paid:${ip}`, { max: 120, windowMs: 3600_000 })
-    : rateLimit(`free:${ip}`, { max: FREE_REPORTS, windowMs: 24 * 3600_000 });
+    ? await rateLimit(`paid:${ip}`, { max: 120, windowMs: 3600_000 })
+    : await rateLimit(`free:${ip}`, { max: FREE_REPORTS, windowMs: 24 * 3600_000 });
 
   if (!limit.ok) {
     if (key) {
